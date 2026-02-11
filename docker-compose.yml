@@ -12,6 +12,7 @@ services:
       # Wakeword data and configuration
       - wakeword_data:/app/local
       - configuration:/app/configuration
+      - /home/tom/.config/pulse/cookie:/home/lva/.config/pulse/cookie:ro
     restart: "no"
 
   # Linux Voice Assistant
@@ -39,7 +40,8 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
       # Pulseaudio
-      # /run/user/1000:/run/user/1000
+      - /run/user/1000:/run/user/1000
+      - /home/tom/.config/pulse/cookie:/home/lva/.config/pulse/cookie:ro
       - ${LVA_XDG_RUNTIME_DIR}:${LVA_XDG_RUNTIME_DIR}
     depends_on:
       - fix-permissions
