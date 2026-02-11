@@ -62,25 +62,41 @@ if [ "$ENABLE_THINKING_SOUND" = "1" ]; then
 fi
 
 
-### Wait for PulseAudio
-# Wait for PulseAudio to be available before starting the application
+### Wait for PulseAudio/PipeWire
+# Wait for sound server (host socket) to be available before starting.
+# Prefer pactl if available; otherwise treat socket file existence as ready (e.g. PipeWire without pactl in image).
 CP_MAX_RETRIES=30
 CP_RETRY_DELAY=1
-### while maybe besser?
-echo "Checking port $PORT..."
-for i in $(seq 1 $CP_MAX_RETRIES); do
-  # Check if PulseAudio is running
+echo "Waiting for sound server (PULSE_SERVER=${PULSE_SERVER:-<not set>})..."
+sound_server_ready() {
   if pactl info >/dev/null 2>&1; then
-    echo "✅ PulseAudio is running"
+    return 0
+  fi
+  # Fallback: PULSE_SERVER=unix:/run/user/1000/pulse/native → socket at /run/user/1000/pulse/native
+  if [ -n "${PULSE_SERVER}" ] && [ "${PULSE_SERVER#unix:}" != "${PULSE_SERVER}" ]; then
+    socket_path="${PULSE_SERVER#unix:}"
+    if [ -S "$socket_path" ] || [ -e "$socket_path" ]; then
+      return 0
+    fi
+  fi
+  return 1
+}
+for i in $(seq 1 $CP_MAX_RETRIES); do
+  if sound_server_ready; then
+    echo "✅ Sound server (PulseAudio/PipeWire) is available"
     break
   fi
 
   if [ $i -eq $CP_MAX_RETRIES ]; then
-      echo "❌ PulseAudio did not start after $CP_MAX_RETRIES seconds"
-      exit 2
+    echo "❌ Sound server did not become available after ${CP_MAX_RETRIES} seconds."
+    echo "   On the HOST, ensure:"
+    echo "   1. You are logged in so /run/user/$(id -u) exists."
+    echo "   2. PipeWire/PulseAudio is running: systemctl --user status pipewire-pulse (or pulseaudio)."
+    echo "   3. LVA_PULSE_SERVER and LVA_XDG_RUNTIME_DIR in .env match (e.g. /run/user/1000)."
+    exit 2
   fi
 
-  echo "⏳ PulseAudio not running yet, retrying in $CP_RETRY_DELAY s..."
+  echo "⏳ Sound server not ready yet, retrying in ${CP_RETRY_DELAY} s... ($i/${CP_MAX_RETRIES})"
   sleep $CP_RETRY_DELAY
 done
 
