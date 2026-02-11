@@ -23,7 +23,8 @@ services:
     network_mode: "host"
     user: "${LVA_USER_ID}:${LVA_USER_GROUP}"
     environment:
-      # Pulseaudio
+      # Pulseaudio: HOME so the client finds the cookie at $HOME/.config/pulse/cookie
+      - HOME=/home/lva
       - XDG_RUNTIME_DIR=${LVA_XDG_RUNTIME_DIR}
       - PULSE_SERVER=${LVA_PULSE_SERVER}
     env_file: .env

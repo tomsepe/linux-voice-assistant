@@ -123,6 +123,12 @@ for i in $(seq 1 $PA_MAX_RETRIES); do
 done
 
 
+### Optional: satisfy yt-dlp cookie path to avoid "Failed to load cookie file" warning
+# mpv/yt-dlp may look for a cookie file at "cookie" (cwd); ensure it exists (empty is fine)
+if [ ! -e /app/cookie ]; then
+  touch /app/cookie
+fi
+
 ### Start application
 if [ "$LIST_DEVICES" = "1" ]; then
   echo "list input devices"
