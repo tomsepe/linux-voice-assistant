@@ -321,6 +321,49 @@ sleep 2
 systemctl --user start linux-voice-assistant.service
 ```
 
+### Allow container to use PipeWire (fix timeout)
+
+If the container has the cookie and socket but **pactl** inside the container shows **"Connection failure: Timeout"**, PipeWire is not granting access to the container client. Add a PipeWire drop-in so the Pulse socket allows connections (e.g. from Docker).
+
+On the **host** (replace `tom` with your username):
+
+``` sh
+mkdir -p ~/.config/pipewire/pipewire.conf.d
+nano ~/.config/pipewire/pipewire.conf.d/50-container-access.conf
+```
+
+Paste (this gives unrestricted access so the container can connect):
+
+``` ini
+# Allow Pulse clients (e.g. from Docker) to connect; avoids "Connection failure: Timeout"
+module.access.args = {
+    access.legacy = true
+}
+```
+
+Save, then restart PipeWire and the container:
+
+``` sh
+systemctl --user restart pipewire pipewire-pulse wireplumber
+sleep 2
+cd ~/linux-voice-assistant
+docker compose up -d --force-recreate
+docker logs -f linux-voice-assistant
+```
+
+If your distro already uses socket-based access and the above does not take effect, try instead a drop-in that forces unrestricted on the default socket (same path, different file content):
+
+``` ini
+module.access.args = {
+    access.socket = {
+        pipewire-0 = "unrestricted"
+        pipewire-0-manager = "unrestricted"
+    }
+}
+```
+
+Then restart as above.
+
 ### Configure PipeWire (optional):
 
 Create the PipeWire configuration directory:
@@ -561,6 +604,8 @@ docker compose up -d
 If you see "Audio server socket not ready" in the logs, ensure PipeWire is running and the socket exists (`ls -la /run/user/1000/pulse/native`), or use the [Start container after PipeWire (headless reboot)](#start-container-after-pipewire-headless-reboot) steps.
 
 If the container starts but then crashes with `AssertionError` or `PA_CONTEXT_READY` (soundcard/Pulse auth), set **LVA_PULSE_CONFIG** in `.env` to your host Pulse config dir (e.g. `/home/tom/.config/pulse`) so the container can use the cookie. Ensure that dir exists and contains `cookie` (PipeWire creates it when you first use audio).
+
+If **pactl** from inside the container shows **"Connection failure: Timeout"** (cookie and socket are correct), PipeWire's access control is suspending the container's connection and never granting permission. Apply [Allow container to use PipeWire (fix timeout)](#allow-container-to-use-pipewire-fix-timeout) below.
 
 💡 **Note:** If you want to use the application with a different user, change the user in the .env file and the UID. The container will restart automatically after a reboot unless you use the "Start container after PipeWire" systemd flow.
 
