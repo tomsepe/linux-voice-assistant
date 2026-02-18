@@ -127,6 +127,14 @@ for i in $(seq 1 $PA_MAX_RETRIES); do
 done
 
 
+### Pulse cookie required for app (libpulse uses $HOME/.config/pulse/cookie)
+if [ ! -f "/app/.config/pulse/cookie" ]; then
+  echo "❌ Pulse cookie not found at /app/.config/pulse/cookie"
+  echo "   Set LVA_PULSE_CONFIG in your .env to the host path, e.g.:"
+  echo "   LVA_PULSE_CONFIG=\"/home/YOUR_USER/.config/pulse\""
+  exit 2
+fi
+
 ### Start application
 if [ "$LIST_DEVICES" = "1" ]; then
   echo "list input devices"
