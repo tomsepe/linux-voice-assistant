@@ -502,6 +502,8 @@ LVA_USER_GROUP="1000"
 # PipeWire:   unix:/run/user/1000/pulse/native  (use this with pipewire-pulse)
 LVA_PULSE_SERVER="unix:/run/user/${LVA_USER_ID}/pulse/native"
 LVA_XDG_RUNTIME_DIR="/run/user/${LVA_USER_ID}"
+# Pulse cookie (required for container auth). Replace tom with your username.
+LVA_PULSE_CONFIG="/home/tom/.config/pulse"
 
 ### Path to the preferences file (optional):
 # PREFERENCES_FILE="/app/configuration/preferences.json"
@@ -557,6 +559,8 @@ docker compose up -d
 ```
 
 If you see "Audio server socket not ready" in the logs, ensure PipeWire is running and the socket exists (`ls -la /run/user/1000/pulse/native`), or use the [Start container after PipeWire (headless reboot)](#start-container-after-pipewire-headless-reboot) steps.
+
+If the container starts but then crashes with `AssertionError` or `PA_CONTEXT_READY` (soundcard/Pulse auth), set **LVA_PULSE_CONFIG** in `.env` to your host Pulse config dir (e.g. `/home/tom/.config/pulse`) so the container can use the cookie. Ensure that dir exists and contains `cookie` (PipeWire creates it when you first use audio).
 
 💡 **Note:** If you want to use the application with a different user, change the user in the .env file and the UID. The container will restart automatically after a reboot unless you use the "Start container after PipeWire" systemd flow.
 
