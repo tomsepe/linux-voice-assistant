@@ -14,9 +14,10 @@ services:
       - configuration:/app/configuration
     restart: "no"
 
-  # Linux Voice Assistant
+  # Linux Voice Assistant (build from repo so entrypoint uses socket check, not pactl)
   linux-voice-assistant:
     container_name: linux-voice-assistant
+    build: .
     image: "ghcr.io/ohf-voice/linux-voice-assistant:latest"
     restart: unless-stopped
     network_mode: "host"

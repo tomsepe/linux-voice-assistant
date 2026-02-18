@@ -51,7 +51,7 @@ COPY script/ ./script/
 COPY pyproject.toml ./
 COPY setup.cfg ./
 COPY sounds/ ./sounds/
-COPY ../wakewords/ ./wakewords/
+COPY wakewords/ ./wakewords/
 COPY linux_voice_assistant/ ./linux_voice_assistant/
 COPY docker-entrypoint.sh ./
 
