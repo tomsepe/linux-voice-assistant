@@ -3,7 +3,7 @@
 
 # ** AI Voice Assistant Using Pi4 with Linux Voice Assistant, ESPHome and Connect tot Home assistant OS.**
 
-i tested this with a USB HD webcam then switched to a USB microphone
+I tested this with a USB HD webcam then switched to a USB microphone
 ## **Raspberry Pi Setup:**
 ### 1. Install OS
 
@@ -86,7 +86,7 @@ sudo nmcli connection up "RR_IoT"
 ---
 ## **SETUP AUDIO**
 
-Plug in USB Microphone or Camera. I recomend this as using a hat or a sound card can be kernel dependent or depend on other libraries that may or not be up to date or in sync. I had a hell of a time with the Respeaker Hat for instance. USB microphones are inexpensive and plug and play.
+Plug in USB Microphone or Camera. I recomend this as using a hat or a sound card can be kernel dependent or depend on other libraries that may or not be up to date or in sync. I had a hell of a time with the Respeaker Hat for instance. USB microphones are inexpensive and plug and play. I did eventually get the Respeaker 2mics V2 Hat working however in a different branch
 
 ### Verify Audio:
 
@@ -172,7 +172,7 @@ Edit your config file: `sudo nano /boot/firmware/config.txt` (or `/boot/config.t
 dtparam=audio=on
 ```
 
-### **3. Test the Mic** Run this todo alive Mic test:
+### **3. Test the Mic** Run this to do a live Mic test:
 
 ```BASH
 # live mic test with volume meter
@@ -205,7 +205,7 @@ It is on your own to choose the audio service you want to use.
 
 # Install Audioservice
 
-For Linux-Voice-Assistant a Pulseaudio connection to the soundcard is required. Since PulseAudio is not installed by default on Ubuntu 22.04 we also support Pipewire. You can choose either one (A or B) of them.
+For Linux-Voice-Assistant the app uses the **Pulse protocol** (PulseAudio API) to talk to the sound server. You can use either **PipeWire** (with its Pulse-compatible layer) or **PulseAudio**; the container works with both. PipeWire is recommended on Raspberry Pi OS.
 
 ## A) Pipewire (recommended):
 
@@ -242,16 +242,23 @@ systemctl --user enable pipewire pipewire-pulse wireplumber
 systemctl --user start pipewire pipewire-pulse wireplumber
 ```
 
-Check that the PulseAudio-compatible layer is up (install `pulseaudio-utils` if `pactl` is not found):
+Verify the audio server socket exists (the container checks for this file; it does **not** run `pactl`, so it won't hang):
+
+``` sh
+ls -la /run/user/1000/pulse/native
+# Should show a socket, e.g. srw-rw-rw- 1 tom tom 0 ... /run/user/1000/pulse/native
+```
+
+Optional: test from the host with `pactl` (install `pulseaudio-utils` if needed). If `pactl` hangs, that's a known PipeWire quirk; the container only checks that the socket file exists.
 
 ``` sh
 sudo apt install -y pulseaudio-utils
-XDG_RUNTIME_DIR=/run/user/1000 pactl -s unix:/run/user/1000/pulse/native info
+XDG_RUNTIME_DIR=/run/user/1000 timeout 3 pactl -s unix:/run/user/1000/pulse/native info || true
 ```
 
 ### Start container after PipeWire (headless reboot)
 
-If the container shows "PulseAudio not running" after reboot, Docker likely started before your user session. The container then mounts an empty `/run/user/1000` and never sees the real Pulse socket.
+If the container shows "Audio server socket not ready" or "Audio server socket not found" after reboot, Docker likely started before your user session. The container then mounts an empty `/run/user/1000` and never sees the real socket.
 
 **Fix:** start the voice-assistant container only after the Pulse socket exists, using a systemd service.
 
@@ -431,7 +438,18 @@ sudo apt-get update
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
-Download the docker-compose.yml and .env.example file from the repository to a folder on your system:
+**Option 1 – Clone the full repo (recommended for PipeWire):** Builds the image from source so the container uses a **socket check** instead of `pactl`, avoiding hangs with PipeWire.
+
+```shell
+git clone https://github.com/OHF-Voice/linux-voice-assistant.git
+cd linux-voice-assistant
+cp .env.example .env
+# Edit .env (LVA_USER_ID, LVA_PULSE_SERVER, LVA_XDG_RUNTIME_DIR, WAKE_MODEL, etc.)
+docker compose build --no-cache linux-voice-assistant
+docker compose up -d
+```
+
+**Option 2 – Download only compose and env:** Uses the prebuilt image (container runs `pactl` in the entrypoint; can hang with PipeWire until the socket is ready).
 
 ```shell
 mkdir linux-voice-assistant
@@ -439,9 +457,11 @@ cd linux-voice-assistant
 wget https://raw.githubusercontent.com/OHF-Voice/linux-voice-assistant/refs/tags/v1.0.0/docker-compose.yml
 wget https://raw.githubusercontent.com/OHF-Voice/linux-voice-assistant/refs/tags/v1.0.0/.env.example
 cp .env.example .env
+# If you use the repo's docker-compose.yml with build: ., run: docker compose build --no-cache linux-voice-assistant
+docker compose up -d
 ```
 
-💡 **Note:** Use the latest stable version of the files from the repository. We update this documentation only regulary.
+💡 **Note:** Use the latest stable version of the files from the repository. We update this documentation only regularly.
 
 | Tag        | Description                   | Example                                             |
 | ---------- | ----------------------------- | --------------------------------------------------- |
@@ -469,7 +489,7 @@ nano .env
 # LIST_DEVICES="1"
 
 ### User ID:
-# This is used to set the correct permissions for the accessing the audio device and accessing the PulseAudio socket
+# This is used to set the correct permissions for the audio device and the Pulse/PipeWire socket
 LVA_USER_ID="1000"
 LVA_USER_GROUP="1000"
 
@@ -477,9 +497,9 @@ LVA_USER_GROUP="1000"
 # by default it uses the HOSTNAME variable from the piCompose environment which includes the MAC from the network card
 # CLIENT_NAME="My Voice Assistant Speaker"
 
-### PulseAudio socket path on the host:
-# PulseAudio Server:    /run/user/1000/pulse
-# Pipewire Server:      /run/user/1000/pulse/native
+### Audio server socket (Pulse protocol). Works with PipeWire or PulseAudio:
+# PulseAudio:  unix:/run/user/1000/pulse
+# PipeWire:   unix:/run/user/1000/pulse/native  (use this with pipewire-pulse)
 LVA_PULSE_SERVER="unix:/run/user/${LVA_USER_ID}/pulse/native"
 LVA_XDG_RUNTIME_DIR="/run/user/${LVA_USER_ID}"
 
@@ -498,8 +518,8 @@ LVA_XDG_RUNTIME_DIR="/run/user/${LVA_USER_ID}"
 # Enable thinking sound (optional):
 # ENABLE_THINKING_SOUND="1"
 
-# Wake model (optional):
-# WAKE-MODEL="okay_nabu"
+# Wake model (optional). Must match a wake word id (e.g. hey_jarvis, okay_nabu):
+# WAKE_MODEL="hey_jarvis"
 
 # Refactory seconds (optional):
 # REFACTORY_SECONDS="2"
@@ -524,20 +544,21 @@ To run Docker commands without using `sudo` every time, add your user to the `do
 sudo usermod -aG docker $USER
 ```
 
-
 1. **Activate the changes:** You usually need to log out and log back in for this to take effect. However, you can apply the changes to your current terminal session immediately by running:
 
 ```bash
 newgrp docker
 ```
 
-Start the application:
+Start the application (if you built from the repo, the image is already built):
 
 ```shell
 docker compose up -d
 ```
 
-💡 **Note:** If you want to use the application with a different user, you need to change the user in the .env file. Dont forget to change the UID from the user. The docker container will run until you stop it. It will restart autiomatically after a reboot.
+If you see "Audio server socket not ready" in the logs, ensure PipeWire is running and the socket exists (`ls -la /run/user/1000/pulse/native`), or use the [Start container after PipeWire (headless reboot)](#start-container-after-pipewire-headless-reboot) steps.
+
+💡 **Note:** If you want to use the application with a different user, change the user in the .env file and the UID. The container will restart automatically after a reboot unless you use the "Start container after PipeWire" systemd flow.
 
 
 ```shell
@@ -562,6 +583,7 @@ Download the latest image:
 docker-compose pull
 ```
 
+
 ---
 ## Additional Information:
 
@@ -579,8 +601,6 @@ sudo amixer -c Lite set Speaker 100%
 sudo alsactl store
 ```
 
-💡 **Note:** Replace `$LVA_USER_ID` with your actual user id that you want to run the voice assistant.
-
 Alternatively you can use the following command to set the volume:
 
 ```bash
@@ -589,636 +609,11 @@ sudo alsamixer
 ```
 
 💡 **Note:** Replace `$LVA_USER_ID` with your actual user id that you want to run the voice assistant.
----
-
-
-
 
 
 ---
 
-### 4. Verify PulseAudio setup in container:
-
-After restarting, test inside the container:
-
-`docker exec -it linux-voice-assistant bash pactl list sources short pactl list sinks short`
-
-The key difference is that with PulseAudio, you should reference **PulseAudio device names** rather than ALSA device numbers. Your current setup already has the right environment variables (`LVA_PULSE_SERVER`, `LVA_XDG_RUNTIME_DIR`) so it should work with the PulseAudio device names I suggested.
-
-It looks like your PulseAudio server currently **only** sees the onboard audio jack (the "stereo-fallback") as a valid output. Even though ALSA sees your Seeed HAT as `card 1`, PulseAudio hasn't "claimed" it yet. This is why your manual `speaker-test` (which talks to the hardware) works, but your voice assistant (which talks to PulseAudio) is silent.
-
-Here is the fix:
-
-### 1. Force PulseAudio to recognize the HAT
-
-Sometimes PulseAudio needs a nudge to load the module for a specific hardware card. Run this command on your host:
-
-Bash
-
-```
-pactl load-module module-alsa-sink device=hw:1,0 name=seeed_out
-pactl load-module module-alsa-source device=hw:1,0 name=seeed_in
-```
-
-Now, run `pactl list sinks short` again. You should see a new entry named `seeed_out`.
-
-### 2. Update your `.env` with the new names
-
-Once the sink appears, update your Docker configuration to use these specific names you just created:
-
-Bash
-
-```
-### Audio input device:
-AUDIO_INPUT_DEVICE="seeed_in"
-
-### Audio output device:
-AUDIO_OUTPUT_DEVICE="seeed_out"
-```
-
-Based on the control list you provided, your ReSpeaker HAT is using the **TLV320AIC3x** driver (likely a clone or a specific version of the 2-Mic Pi HAT). This chip has very specific "routing" switches that must be enabled to connect the digital audio (DAC) to the output pins.
-
-Here are the exact commands to enable the speaker output for your specific board.
-
-### 1. Enable the Output Path (Crucial)
-
-You need to connect the "DAC" (Digital to Analog Converter) to the "Line Out" mixer. Run these commands on the Host:
-
-Bash
-
-```
-# Connect the Left and Right DACs to the Line Mixer (this feeds the speaker amp)
-amixer -c 1 sset 'Left Line Mixer DACL1' on
-amixer -c 1 sset 'Right Line Mixer DACR1' on
-```
-
-### 2. Unmute and Turn Up the Volume
-
-Now that the path is open, turn up the actual volume controls.
-
-Bash
-
-```
-# Set the main PCM volume to max
-amixer -c 1 sset 'PCM' 100% unmute
-
-# Set the Line Out volume (this often controls the JST speaker connector)
-amixer -c 1 sset 'Line' 100% unmute
-
-# Set the DAC volume
-amixer -c 1 sset 'Line DAC' 100% unmute
-```
-
-### 3. (Optional) Check Headphone/HP
-
-If the speaker is wired to the "Headphone" pins instead of "Line Out" on your specific board revision, you might need these instead:
-
-Bash
-
-```
-# Connect DAC to Headphone Mixer
-amixer -c 1 sset 'Left HP Mixer DACL1' on
-amixer -c 1 sset 'Right HP Mixer DACR1' on
-
-# Turn up Headphone volume
-amixer -c 1 sset 'HP' 100% unmute
-amixer -c 1 sset 'HP DAC' 100% unmute
-```
-
-### 4. Test Immediately
-
-Try playing a sound from the host first to verify the hardware path is open:
-
-Bash
-
-```
-paplay --device=seeed_out /usr/share/sounds/alsa/Front_Center.wav
-```
-
-### The Fix: Force `ao=pulse` Globally
-
-Run this command to create a configuration file inside the container that tells `mpv` "Always use PulseAudio, no matter what."
-
-Bash
-
-```
-docker exec -u 0 linux-voice-assistant sh -c "mkdir -p /etc/mpv && echo 'ao=pulse' > /etc/mpv/mpv.conf"
-```
-
-_Note: I changed the path to `/root/.config/mpv/mpv.conf` because the container likely runs as root or uses the root home directory for config storage._
-
-### Restart the Container
-
-Now restart the container so the main application picks up this new configuration:
-
-Bash
-
-```
-docker compose restart
-```
-
-
-
-
-
-
-
-
-
-
-
-
----
-
-
-
----
----
-## Pipewire - DONT REVCOMEND HAD ISSUES
-
-```shell
-# Update package database
-sudo apt update
-
-# Install PipeWire and related packages
-sudo apt install -y pipewire wireplumber pipewire-audio-client-libraries libspa-0.2-bluetooth pipewire-audio pipewire-pulse dfu-util
-```
-
-Link the PipeWire configuration for ALSA applications sudo ln -sf:
-
-```shell
-sudo ln -sf: ln -s /usr/share/alsa/alsa.conf.d/50-pipewire.conf /etc/alsa/conf.d/
-```
-
-Allow services to run without an active user session (optional, for headless setups):
-
-```shell
-sudo mkdir -p /var/lib/systemd/linger
-sudo touch /var/lib/systemd/linger/$USER
-```
-
-💡 **Note:** Replace `$USER` with your actual username that you want to run the voice assistant.
-
-### Configure PipeWire (optional):
-
-[https://github.com/tomsepe/linux-voice-assistant/blob/pi4-trixie/docs/install_audioserver.md#configure-pipewire-optional]
-
-Create the PipeWire configuration directory:
-
-```shell
-mkdir -p "/etc/pipewire"
-```
-
-Don't just create the file in `/etc/pipewire/`. The "cleaner" way is to copy the default config first so you don't break the system defaults:
-
-1. **Create the directory:** 
-```bash
-sudo mkdir -p /etc/pipewire
-```
-
-2. **Copy the original (optional but safe):** 
-```bash
-sudo cp /usr/share/pipewire/pipewire.conf /etc/pipewire/
-#make a backup just in case
-sudo cp /etc/pipewire/pipewire.conf /etc/pipewire/pipewire.conf.backup
-```
-
-Create the PipeWire configuration directory:
-
-```shell
-mkdir -p "/etc/pipewire"
-```
-
-Create the file `/etc/pipewire/pipewire.conf` with the following content (minimal configuration for voice assistant use):
-
-
-
-```ini
-# Daemon config file for PipeWire
-context.properties = {
-    link.max-buffers = 16
-    mem.warn-mlock = true
-    log.level = 3
-    context.num-data-loops = 1
-    core.daemon = true
-    core.name = pipewire-0
-    default.clock.rate = 16000
-}
-
-context.modules = [
-    { name = libpipewire-module-rt
-        args = {
-            nice.level = -11
-            rt.prio = 88
-        }
-        flags = [ ifexists nofail ]
-    }
-    { name = libpipewire-module-protocol-native }
-    { name = libpipewire-module-profiler }
-    { name = libpipewire-module-metadata }
-    { name = libpipewire-module-spa-device-factory }
-    { name = libpipewire-module-spa-node-factory }
-    { name = libpipewire-module-client-node }
-    { name = libpipewire-module-client-device }
-    { name = libpipewire-module-portal
-        flags = [ ifexists nofail ]
-    }
-    { name = libpipewire-module-access
-        condition = [ { module.access = true } ]
-    }
-    { name = libpipewire-module-adapter }
-    { name = libpipewire-module-link-factory }
-    { name = libpipewire-module-session-manager }
-]
-```
-
-
-### Step 2: Install Application:
-
-[](https://github.com/tomsepe/linux-voice-assistant/blob/pi4-trixie/docs/install.md#step-2-install-application)
-
-You can run the application in two ways:
-
-- **a) Docker Compose** (recommended): Install Docker, download compose files, configure and start. See [Install Application - Docker Compose](https://github.com/tomsepe/linux-voice-assistant/blob/pi4-trixie/docs/install_application.md)
-- **b) Bare Metal** Install dependencies, clone repo, setup and create systemd service. See [Install Application - Bare Metal](https://github.com/tomsepe/linux-voice-assistant/blob/pi4-trixie/docs/install_application.md)
-
-You can install the application in different ways. We recommend to use Docker Compose if not the prebuilt image. But if you dont want to use Docker you can also install it directly on your system.
-
-
-
----
----
-
-## **DEPRECATED:**
----
-## **5. Use Linux Voice Assistant (replaces Wyoming-satellite):**
-
-   ```BASH
-   # Update
-   sudo apt update && sudo apt upgrade -y
-   
-   # Install git if needed 
-   sudo apt install git -y 
-   git clone https://github.com/OHF-Voice/linux-voice-assistant.git
-   cd linux-voice-assistant
-   script/setup
-   ```
-
-### Step 1: Enter the Virtual Environment
-
-You need to activate the environment you just built so your commands use the libraries inside it. install the missing audio server and its development headers:
-```BASH
-source .venv/bin/activate
-sudo apt install -y pulseaudio libpulse-dev libmpv-dev mpv
-```
-
-Since we just installed it, we need to make sure the audio server is actually running before Python tries to talk to it.
-
-
-```BASH
-pulseaudio --start
-```
-
-### Step 1: Install the Session Manager
-
-On Raspberry Pi OS **Lite**, the tool that manages user services (like audio) is often missing. Without this, your services die when you log out.
-
-Run this command:
-```BASH
-sudo apt install -y dbus-user-session
-```
-
-### Step 2: Enable PulseAudio as a Service
-
-Now we tell the Pi to run PulseAudio automatically at boot, forever.
-```BASH
-systemctl --user enable pulseaudio
-systemctl --user start pulseaudio
-```
-
-
-### Step 2: Find Your Microphone
-
-We need to know exactly what name Python sees for your ReSpeaker card. This is often different from what `arecord` shows
-
-
-First we need the names of the input and output devices to add to our command There is a bit of a silly design flaw in the software—it forces you to name the satellite even if you are just asking "what microphones do you have?"
-
-**Add a dummy name to the command to force it to list the devices:**
-
-```BASH
-# List Microphones
-script/run --name temp --list-input-devices
-
-# List Speakers
-script/run --name temp --list-output-devices
-```
-
-You are looking for the name that mentions
-
-We have the exact names now.
-
-### The Final Run Command
-
-We will use the generic name `"Built-in Audio Stereo"` for the microphone, and the specific PulseAudio fallback path for the speakers.
-
-**Run this command to start Wintermute:**
-
-
-```BASH
-script/run \
-  --name 'wintermute-satellite' \
-  --host 0.0.0.0 \
-  --port 10700 \
-  --audio-input-device "Built-in Audio Stereo" \
-  --audio-output-device "pulse/alsa_output.platform-soc_sound.stereo-fallback" \
-  --wake-word-dir wakewords \
-  --wake-model okay_nabu
-```
-
-
-Here is the logic for the final command:
-
-1. **Input:** We use `"Built-in Audio Stereo"` (PulseAudio is aliasing your ReSpeaker to this name).
-2. **Output:** We use the explicit hardware path `"pulse/alsa_output.platform-soc_sound.stereo-fallback"` to ensure it goes to the HAT, not the HDMI or Headphone jack.
-- **Note on `snd-command`:** I set the playback rate to `48000` because the V2 HAT (`tlv320aic3x`) supports high-quality audio, unlike the V1.
-- **Note on `wake-uri`:** This points to your Base Home Assistant server (`.72`). Ensure the **openWakeWord** Add-on is running there.
-
-### What to expect:
-
-1. **"Connected":** You should see a log saying the server started on port 10700.
-2. **Home Assistant:** Go to **Settings > Devices**. You should see a new integration discovered (Wyoming Protocol).    
-3. **Configure:** Click "Configure" and assign it to your voice pipeline.
-
-**Note on Wake Word:** Because we removed the `--wake-uri` flag (which is no longer supported), this satellite currently has **no wake word**. It is in "Push-to-Talk" mode.
-
-- **Test it first:** In Home Assistant, you can click the "Assist" icon at the top right, select this satellite, and see if it speaks through the Pi.    
-- **Next Step:** Once it connects, we will connect the `ok_nabu` model to the Pi so it can listen locally.
-#### 1. Enable "Lingering" (Crucial Step)
-
-By default, "User Services" die the moment you log out (disconnect SSH). We need to tell the Pi to keep your user's brain running even when you aren't looking.
-
-Run this command once:
-
-Bash
-
-```
-loginctl enable-linger $USER
-```
-
-#### 2. Create the Service File
-
-We will create a file that tells systemd exactly how to run the satellite.
-
-Bash
-
-```
-mkdir -p ~/.config/systemd/user
-nano ~/.config/systemd/user/wyoming-satellite.service
-```
-
-#### 3. Paste the Configuration
-
-Paste the following text into the file. _(Note: I have included the specific `arecord` and `aplay` flags we found that work with your ReSpeaker HAT)._
-
-```bash
-[Unit]
-Description=Wintermute Satellite
-After=network-online.target pulseaudio.service
-Wants=network-online.target pulseaudio.service
-
-[Service]
-Type=simple
-WorkingDirectory=%h/linux-voice-assistant
-ExecStart=%h/linux-voice-assistant/script/run \
-    --name 'wintermute-satellite' \
-    --host 0.0.0.0 \
-    --port 10700 \
-    --audio-input-device "Built-in Audio Stereo" \
-    --audio-output-device "pulse/alsa_output.platform-soc_sound.stereo-fallback" \
-    --wake-word-dir wakewords \
-    --wake-model okay_nabu \
-    --wakeup-sound %h/linux-voice-assistant/sounds/wake_word_triggered_old.wav
-    --timer-finished-sound %h/linux-voice-assistant/sounds/timer_finished_old.wav
-    --enable-thinking-sound
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=default.target
-```
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now wyoming-satellite.service
-systemctl --user status wyoming-satellite.service
-```
----
-### **Finish the Home Assistant Setup:**
-
-1. **Keep "Full local processing" selected** and click **Next**.
-2. **Speech-to-text:** Select **Whisper** (it should be auto-detected since the Add-on is running).
-3. **Text-to-speech:** Select **Piper** (also auto-detected).
-4. **Wake Word:** Select **openWakeWord**.
-5. **Finish:** Name the assistant (e.g., "Wintermute").    
-
-## **7. Create as a service:** 
-### Enable "Lingering" (Crucial)
-
-This command tells the Pi to start your User Services (`tom`) immediately at boot, even before you log in via SSH. **Do not skip this.**
-
-```BASH
-sudo loginctl enable-linger $USER
-```
-
-### Step 3: Create the User Service
-
-1. Create the folder structure:
-```BASH
-mkdir -p ~/.config/systemd/user/
-```
-
-2. Create the new service file:
-```BASH
-nano ~/.config/systemd/user/wintermute.service
-```
-
-3. Paste this exact configuration (notice `User=` is removed because it's implied, and paths use `%h` for home):
-
-```INI
-[Unit]
-Description=Wintermute Satellite
-After=network-online.target pulseaudio.service
-Wants=network-online.target pulseaudio.service
-
-[Service]
-Type=simple
-WorkingDirectory=%h/linux-voice-assistant
-ExecStart=%h/linux-voice-assistant/script/run \
-    --name 'wintermute-satellite' \
-    --host 0.0.0.0 \
-    --port 10700 \
-    --audio-input-device "Built-in Audio Stereo" \
-    --audio-output-device "pulse/alsa_output.platform-soc_sound.stereo-fallback" \
-    --wake-word-dir wakewords \
-    --wake-model okay_nabu \
-    --wakeup-sound %h/linux-voice-assistant/sounds/wake_word_triggered_old.wav
-    --timer-finished-sound %h/linux-voice-assistant/sounds/timer_finished_old.wav
-    --enable-thinking-sound
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=default.target
-```
-
-```BASH
-# Reload user daemons
-systemctl --user daemon-reload
-
-# Enable to start at boot
-systemctl --user enable wintermute.service
-
-# Start it now
-systemctl --user start wintermute.service
-
-# Chaeck status
-systemctl --user status wintermute.service
-```
-
-### Step 1: Install the Session Manager
-
-On Raspberry Pi OS **Lite**, the tool that manages user services (like audio) is often missing. Without this, your services die when you log out.
-
-Run this command:
-```BASH
-sudo apt install -y dbus-user-session
-```
-
-### Step 2: Enable PulseAudio as a Service
-
-Now we tell the Pi to run PulseAudio automatically at boot, forever.
-```BASH
-systemctl --user enable pulseaudio
-systemctl --user start pulseaudio
-```
-
-### Step 3: Reboot (The Clean Slate)
-
-Since we have changed permissions, installed drivers, and moved services around, we need a full reboot to ensure everything comes up in the correct order (PulseAudio First -> Then Wintermute).
-```BASH
-sudo reboot
-```
-### Step 4: The Moment of Truth
-
-Wait about 60 seconds after the Pi boots up. **Do not run `script/run` manually.** The background service should be doing it for you.
-
-1. SSH back in.
-2. Check the status:
-```BASH
-systemctl --user status pulseaudio
-systemctl --user status wintermute.service
-journalctl --user -u wintermute.service -b --no-pager | tail -n 20
-```
-
-**You should see `Active: active (running)`.**
-
-If you see that green dot:
-- Walk to the Pi.
-- Say **"Okay Nabu"**.
-- Wait for the "Bloop".
-
-```BASH
-sudo systemctl stop wintermute.service
-# make your edits to the service then relaad the deamon
-sudo systemctl daemon-reload
-# restaer the service
-sudo systemctl restart wintermute.service
-```
-other useful commands:
-sudo systemctl disable wintermute.service
-sudo rm /etc/systemd/system/wintermute.service
-
-## **8. Setup for the "Bloop"**
-
-### Step 1: Edit the Service File
-
-Open the configuration file again:
-```BASH
-nano ~/.config/systemd/user/wintermute.service
-```
-
-### Step 2: Add the Sound Argument
-
-Add the `--wakeup-sound` line to your command.
-
-Your `ExecStart` block should look like this (ensure you add the backslash `\` to the line before it!):
-
-```Ini, TOML
-ExecStart=%h/linux-voice-assistant/script/run \
-    --name 'wintermute-satellite' \
-    --host 0.0.0.0 \
-    --port 10700 \
-    --audio-input-device "Built-in Audio Stereo" \
-    --audio-output-device "pulse/alsa_output.platform-soc_sound.stereo-fallback" \
-    --wake-word-dir wakewords \
-    --wake-model okay_nabu \
-    --wakeup-sound %h/linux-voice-assistant/sounds/wake_word_triggered_old.wav
-    --timer-finished-sound %h/linux-voice-assistant/sounds/timer_finished_old.wav
-    --enable-thinking-sound
-```
-
-```
-[Unit]
-Description=Wintermute Satellite
-After=network-online.target pulseaudio.service
-Wants=network-online.target pulseaudio.service
-
-[Service]
-Type=simple
-WorkingDirectory=%h/linux-voice-assistant
-ExecStart=%h/linux-voice-assistant/script/run \
-    --name 'wintermute-satellite' \
-    --host 0.0.0.0 \
-    --port 10700 \
-    --audio-input-device "Built-in Audio Stereo" \
-    --audio-output-device "pulse/alsa_output.platform-soc_sound.stereo-fallback" \
-    --wake-word-dir wakewords \
-    --wake-model okay_nabu \
-    --wakeup-sound %h/linux-voice-assistant/sounds/wake_word_triggered_old.wav
-    --timer-finished-sound %h/linux-voice-assistant/sounds/timer_finished_old.wav
-    --enable-thinking-sound
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=default.target
-
-
-```
-_(Note: Since you have other sounds there, you can also add `--timer-finished-sound %h/linux-voice-assistant/sounds/timer_finished.flac` if you plan to use timers later, but let's stick to the wake sound for now)._
-
-### Step 3: Reload and Restart
-
-Lock in the changes and restart the brain.
-```BASH
-systemctl --user daemon-reload
-systemctl --user restart wintermute.service
-```
-
-### Final Test
-
-1. Walk to the Pi.
-2. Say **"Okay Nabu"**.
-3. **Bloop!** (You should hear it now). 
-4. Say **"What time is it?"**
-
-Let me know if you finally get that satisfying confirmation sound!
-
-
----
-
-OR USE PULSEMIXER
+## USE PULSEMIXER instead of ALSAMIXER
 ```
 sudo apt install pulsemixer
 ```
