@@ -364,6 +364,52 @@ module.access.args = {
 
 Then restart as above.
 
+**If both access configs still don't fix the timeout**, use **Pulse over TCP** so the container connects to PipeWire over localhost TCP instead of the Unix socket:
+
+1. **On the host**, make pipewire-pulse listen on TCP with unrestricted access:
+
+``` sh
+mkdir -p ~/.config/pipewire/pipewire-pulse.conf.d
+nano ~/.config/pipewire/pipewire-pulse.conf.d/50-tcp-unrestricted.conf
+```
+
+Paste:
+
+``` ini
+# Listen on TCP so Docker can connect (unix socket often times out from container)
+pulse.properties = {
+    server.address = [
+        "unix:native",
+        { address = "tcp:127.0.0.1:4713"
+          client.access = "unrestricted"
+        }
+    ]
+}
+```
+
+Restart PipeWire:
+
+``` sh
+systemctl --user restart pipewire pipewire-pulse wireplumber
+sleep 2
+```
+
+2. **In your `.env`**, switch the app to TCP (container uses `network_mode: host`, so 127.0.0.1 is the host):
+
+``` ini
+LVA_PULSE_SERVER="tcp:127.0.0.1:4713"
+```
+
+3. **Recreate the container** (no need to mount the Pulse cookie when using this TCP method):
+
+``` sh
+cd ~/linux-voice-assistant
+docker compose up -d --force-recreate
+docker logs -f linux-voice-assistant
+```
+
+You can leave `LVA_PULSE_CONFIG` and the cookie mount in place; the app will still use the cookie if present, or connect over TCP without it.
+
 ### Configure PipeWire (optional):
 
 Create the PipeWire configuration directory:

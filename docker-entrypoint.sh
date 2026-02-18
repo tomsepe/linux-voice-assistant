@@ -77,32 +77,31 @@ if [ -n "${UNMUTE_SOUND}" ]; then
 fi
 
 
-### Wait for audio server socket (PipeWire or PulseAudio)
-# Check that the Pulse-compatible socket exists. We do NOT run pactl here:
-# pactl can hang (e.g. with PipeWire when DBus/session is not ready).
-# If the socket exists, the app will connect when it starts.
+### Wait for audio server (PipeWire or PulseAudio)
+# Unix socket: check file exists. TCP: check port (or skip). We do NOT run pactl (can hang).
 CP_MAX_RETRIES=30
 CP_RETRY_DELAY=1
-socket_path="${PULSE_SERVER#unix:}"
-if [ -z "$socket_path" ]; then
-  socket_path="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native"
-fi
-echo "Checking port $PORT and audio socket..."
-for i in $(seq 1 $CP_MAX_RETRIES); do
-  if [ -S "$socket_path" ]; then
-    echo "✅ Audio server socket available (PipeWire or PulseAudio)"
-    break
-  fi
-
-  if [ $i -eq $CP_MAX_RETRIES ]; then
+echo "Checking port $PORT and audio server..."
+if [ "${PULSE_SERVER#tcp:}" != "$PULSE_SERVER" ]; then
+  # PULSE_SERVER is tcp:host:port — skip socket file check
+  echo "✅ Using Pulse over TCP (PULSE_SERVER=$PULSE_SERVER)"
+else
+  socket_path="${PULSE_SERVER#unix:}"
+  [ -z "$socket_path" ] && socket_path="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native"
+  for i in $(seq 1 $CP_MAX_RETRIES); do
+    if [ -S "$socket_path" ]; then
+      echo "✅ Audio server socket available (PipeWire or PulseAudio)"
+      break
+    fi
+    if [ $i -eq $CP_MAX_RETRIES ]; then
       echo "❌ Audio server socket not found after $CP_MAX_RETRIES s at: $socket_path"
       echo "   Ensure PipeWire (pipewire-pulse) or PulseAudio is running on the host and XDG_RUNTIME_DIR is mounted."
       exit 2
-  fi
-
-  echo "⏳ Audio server socket not ready, retrying in $CP_RETRY_DELAY s..."
-  sleep $CP_RETRY_DELAY
-done
+    fi
+    echo "⏳ Audio server socket not ready, retrying in $CP_RETRY_DELAY s..."
+    sleep $CP_RETRY_DELAY
+  done
+fi
 
 
 ### Check port availability
@@ -127,8 +126,8 @@ for i in $(seq 1 $PA_MAX_RETRIES); do
 done
 
 
-### Pulse cookie required for app (libpulse uses $HOME/.config/pulse/cookie)
-if [ ! -f "/app/.config/pulse/cookie" ]; then
+### Pulse cookie required when using Unix socket (libpulse uses $HOME/.config/pulse/cookie)
+if [ "${PULSE_SERVER#tcp:}" = "$PULSE_SERVER" ] && [ ! -f "/app/.config/pulse/cookie" ]; then
   echo "❌ Pulse cookie not found at /app/.config/pulse/cookie"
   echo "   Set LVA_PULSE_CONFIG in your .env to the host path, e.g.:"
   echo "   LVA_PULSE_CONFIG=\"/home/YOUR_USER/.config/pulse\""
