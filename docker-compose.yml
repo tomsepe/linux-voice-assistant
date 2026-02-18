@@ -23,10 +23,10 @@ services:
     network_mode: "host"
     user: "${LVA_USER_ID}:${LVA_USER_GROUP}"
     environment:
-      # Pulse/PipeWire: socket and cookie for auth
+      # Pulse/PipeWire: socket and cookie. HOME so libpulse finds $HOME/.config/pulse/cookie
+      - HOME=/app
       - XDG_RUNTIME_DIR=${LVA_XDG_RUNTIME_DIR}
       - PULSE_SERVER=${LVA_PULSE_SERVER}
-      - PULSE_COOKIE=/.config/pulse/cookie
     env_file: .env
     group_add:
       - audio
@@ -42,8 +42,8 @@ services:
       - /etc/timezone:/etc/timezone:ro
       # Pulse/PipeWire socket and cookie (cookie may be in runtime or in LVA_PULSE_CONFIG)
       - ${LVA_XDG_RUNTIME_DIR}:${LVA_XDG_RUNTIME_DIR}
-      # Host Pulse config dir (cookie for auth). Set LVA_PULSE_CONFIG in .env to e.g. /home/tom/.config/pulse
-      - ${LVA_PULSE_CONFIG}:/.config/pulse:ro
+      # Host Pulse config (cookie). Mount to $HOME/.config/pulse so libpulse finds cookie (set HOME=/app)
+      - ${LVA_PULSE_CONFIG}:/app/.config/pulse:ro
     depends_on:
       - fix-permissions
     # Health check for process
