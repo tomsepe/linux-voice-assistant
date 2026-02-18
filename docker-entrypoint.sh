@@ -145,5 +145,9 @@ if [ "$LIST_DEVICES" = "1" ]; then
   sleep 20
 fi
 
+# If first arg looks like a shell command (e.g. "ls", "sh", "cat"), run it instead of the app (for debugging)
+if [ "$1" = "ls" ] || [ "$1" = "sh" ] || [ "$1" = "cat" ] || [ "$1" = "env" ]; then
+  exec "$@"
+fi
 echo "starting application"
 exec ./script/run "$@" "${EXTRA_ARGS[@]}"
