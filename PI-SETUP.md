@@ -235,6 +235,85 @@ sudo touch /var/lib/systemd/linger/$USER
 
 💡 **Note:** Replace `$USER` with your actual username that you want to run the voice assistant.
 
+Enable and start PipeWire so it runs after reboot (required for headless/Docker):
+
+``` sh
+systemctl --user enable pipewire pipewire-pulse wireplumber
+systemctl --user start pipewire pipewire-pulse wireplumber
+```
+
+Check that the PulseAudio-compatible layer is up (install `pulseaudio-utils` if `pactl` is not found):
+
+``` sh
+sudo apt install -y pulseaudio-utils
+XDG_RUNTIME_DIR=/run/user/1000 pactl -s unix:/run/user/1000/pulse/native info
+```
+
+### Start container after PipeWire (headless reboot)
+
+If the container shows "PulseAudio not running" after reboot, Docker likely started before your user session. The container then mounts an empty `/run/user/1000` and never sees the real Pulse socket.
+
+**Fix:** start the voice-assistant container only after the Pulse socket exists, using a systemd service.
+
+1. Stop the container and prevent Docker from starting it at boot:
+
+``` sh
+cd ~/linux-voice-assistant
+docker compose stop linux-voice-assistant
+```
+
+Edit `docker-compose.yml` and set the voice-assistant service to not restart on its own:
+
+``` yaml
+# Change this line for linux-voice-assistant service:
+restart: "no"
+```
+
+2. Create a systemd user service that starts the container after the socket exists (replace `tom` with your username and adjust paths if needed):
+
+``` sh
+mkdir -p ~/.config/systemd/user
+nano ~/.config/systemd/user/linux-voice-assistant.service
+```
+
+Paste (adjust paths and user if needed):
+
+``` ini
+[Unit]
+Description=Start Linux Voice Assistant after PipeWire is ready
+After=network-online.target
+# Wait for Pulse socket to exist (PipeWire user session must be up)
+ConditionPathExists=/run/user/1000/pulse/native
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker start linux-voice-assistant
+ExecStop=/usr/bin/docker stop linux-voice-assistant
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target
+```
+
+3. Enable and start the user service (linger must be enabled so this runs at boot):
+
+``` sh
+loginctl enable-linger tom
+systemctl --user daemon-reload
+systemctl --user enable linux-voice-assistant.service
+systemctl --user start linux-voice-assistant.service
+```
+
+4. On each boot, the user session starts → PipeWire creates the socket → systemd starts the container. To bring the stack up once without reboot:
+
+``` sh
+systemctl --user start pipewire pipewire-pulse wireplumber
+# wait a second for socket
+sleep 2
+systemctl --user start linux-voice-assistant.service
+```
+
 ### Configure PipeWire (optional):
 
 Create the PipeWire configuration directory:
@@ -391,7 +470,7 @@ nano .env
 
 ### User ID:
 # This is used to set the correct permissions for the accessing the audio device and accessing the PulseAudio socket
-USERLVA_USER_ID="1000"
+LVA_USER_ID="1000"
 LVA_USER_GROUP="1000"
 
 ### Name for the client (optional):
@@ -401,8 +480,8 @@ LVA_USER_GROUP="1000"
 ### PulseAudio socket path on the host:
 # PulseAudio Server:    /run/user/1000/pulse
 # Pipewire Server:      /run/user/1000/pulse/native
-LVA_PULSE_SERVER="unix:/run/user/${USERLVA_USER_IDlse/native"
-LVA_XDG_RUNTIME_DIR="/run/user/${USERLVA_USER_ID
+LVA_PULSE_SERVER="unix:/run/user/${LVA_USER_ID}/pulse/native"
+LVA_XDG_RUNTIME_DIR="/run/user/${LVA_USER_ID}"
 
 ### Path to the preferences file (optional):
 # PREFERENCES_FILE="/app/configuration/preferences.json"
@@ -435,7 +514,6 @@ LVA_XDG_RUNTIME_DIR="/run/user/${USERLVA_USER_ID
 
 You can change various settings here, for example the audio sounds which are played when the wake word is detected or when the timer is finished.
 
-💡 **Note:** You can exit vim with `:wq` or `:q!` if you dont want to save the changes.
 
 ### Option 1: The Permanent Fix (Recommended)
 
@@ -461,17 +539,6 @@ docker compose up -d
 
 💡 **Note:** If you want to use the application with a different user, you need to change the user in the .env file. Dont forget to change the UID from the user. The docker container will run until you stop it. It will restart autiomatically after a reboot.
 
-### Option 2: The "Pro" Fix (Recommended)
-
-Since you’re doing a lot of development on this Pi (managing your media stack, Proxmox, and now this voice assistant), typing `sudo` every time gets old fast. You can add your user (`tom`) to the `docker` group so you never have to use `sudo` for Docker again.
-
-**Run these commands:**
-
-1. **Add yourself to the group:** `sudo usermod -aG docker $USER`
-2. **Apply the changes immediately:** `newgrp docker`
-
-Now you should be able to run `docker compose up` without the permission error.
-Check if the application is running:
 
 ```shell
 docker compose ps
@@ -502,7 +569,7 @@ docker-compose pull
 
 If your driver or audiodevice is loaded and you can see the device with `aplay -L` then
 set the audio volume from 0 to 100:
-
+THIS IS FOR TEH RESPEAKER DEVICE NOT THE USB MICROPHONE
 ```bash
 export LVA_XDG_RUNTIME_DIR=/run/user/${LVA_USER_ID}
 sudo amixer -c seeed2micvoicec set Headphone 100%

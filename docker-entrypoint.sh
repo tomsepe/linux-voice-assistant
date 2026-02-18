@@ -77,25 +77,30 @@ if [ -n "${UNMUTE_SOUND}" ]; then
 fi
 
 
-### Wait for PulseAudio
-# Wait for PulseAudio to be available before starting the application
+### Wait for audio server socket (PipeWire or PulseAudio)
+# Check that the Pulse-compatible socket exists. We do NOT run pactl here:
+# pactl can hang (e.g. with PipeWire when DBus/session is not ready).
+# If the socket exists, the app will connect when it starts.
 CP_MAX_RETRIES=30
 CP_RETRY_DELAY=1
-### while maybe besser?
-echo "Checking port $PORT..."
+socket_path="${PULSE_SERVER#unix:}"
+if [ -z "$socket_path" ]; then
+  socket_path="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pulse/native"
+fi
+echo "Checking port $PORT and audio socket..."
 for i in $(seq 1 $CP_MAX_RETRIES); do
-  # Check if PulseAudio is running
-  if pactl info >/dev/null 2>&1; then
-    echo "✅ PulseAudio is running"
+  if [ -S "$socket_path" ]; then
+    echo "✅ Audio server socket available (PipeWire or PulseAudio)"
     break
   fi
 
   if [ $i -eq $CP_MAX_RETRIES ]; then
-      echo "❌ PulseAudio did not start after $CP_MAX_RETRIES seconds"
+      echo "❌ Audio server socket not found after $CP_MAX_RETRIES s at: $socket_path"
+      echo "   Ensure PipeWire (pipewire-pulse) or PulseAudio is running on the host and XDG_RUNTIME_DIR is mounted."
       exit 2
   fi
 
-  echo "⏳ PulseAudio not running yet, retrying in $CP_RETRY_DELAY s..."
+  echo "⏳ Audio server socket not ready, retrying in $CP_RETRY_DELAY s..."
   sleep $CP_RETRY_DELAY
 done
 
